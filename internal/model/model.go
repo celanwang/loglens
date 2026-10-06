@@ -81,7 +81,7 @@ type LatencyStat struct {
 
 // ErrorGroup 归组后的错误模式。
 type ErrorGroup struct {
-	Key          string   // error= 字段值或归一化消息模板
+	Key          string // error= 字段值或归一化消息模板
 	Count        int
 	Modules      []string
 	TraceCount   int

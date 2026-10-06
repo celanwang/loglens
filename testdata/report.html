@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>loglens 智能日志分析报告</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+  :root { --fg:#1f2329; --muted:#8f959e; --border:#e5e6eb; --bg:#f7f8fa; --card:#fff; --accent:#3370ff; --err:#d83931; --warn:#ff8800; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:0 0 48px; background:var(--bg); color:var(--fg); font:14px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif; }
+  header { background:linear-gradient(135deg,#1f3b73,#3370ff); color:#fff; padding:28px 40px; }
+  header h1 { margin:0 0 6px; font-size:22px; }
+  header p { margin:0; opacity:.85; font-size:13px; }
+  main { max-width:1180px; margin:0 auto; padding:0 20px; }
+  section { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:20px 24px; margin-top:20px; }
+  h2 { font-size:16px; margin:0 0 14px; padding-left:10px; border-left:4px solid var(--accent); }
+  h3 { font-size:14px; margin:16px 0 8px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-top:-38px; padding:0 20px; max-width:1180px; margin-left:auto; margin-right:auto; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 16px; box-shadow:0 2px 8px rgba(31,35,41,.04); }
+  .card .num { font-size:22px; font-weight:600; }
+  .card .label { color:var(--muted); font-size:12px; }
+  .card.bad .num { color:var(--err); }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); vertical-align:top; }
+  th { color:var(--muted); font-weight:500; white-space:nowrap; }
+  tr:last-child td { border-bottom:none; }
+  .chart { height:320px; }
+  .chart-row { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:900px){ .chart-row { grid-template-columns:1fr; } }
+  .llm { white-space:pre-wrap; background:#f2f6ff; border:1px solid #d6e4ff; border-radius:8px; padding:14px 16px; }
+  .note { color:var(--muted); }
+  .tag { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; background:#eef0f3; }
+  .tag.err { background:#fdeceb; color:var(--err); }
+  .tag.warn { background:#fff3e0; color:var(--warn); }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
+  .sample { color:var(--muted); word-break:break-all; }
+  .files { color:var(--muted); font-size:12px; margin-top:4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>智能日志分析报告</h1>
+  <p>生成时间：2026-10-06 23:45:06 · 由 loglens 生成</p>
+</header>
+
+<div class="cards">
+  <div class="card"><div class="num">10205</div><div class="label">日志总行数</div></div>
+  <div class="card bad"><div class="num">177</div><div class="label">解析失败（1.73%）</div></div>
+  <div class="card bad"><div class="num">494</div><div class="label">ERROR / FATAL</div></div>
+  <div class="card"><div class="num">378</div><div class="label">WARN</div></div>
+  <div class="card"><div class="num">1787</div><div class="label">请求链路（traceId）</div></div>
+  <div class="card"><div class="num">2007 ms</div><div class="label">请求耗时 P95</div></div>
+</div>
+
+<main>
+<section>
+  <h2>数据概览</h2>
+  <table>
+    <tr><th>时间范围</th><td>2026-08-10 10:00:02 ~ 2026-08-10 10:29:59</td></tr>
+    <tr><th>日志文件</th><td>testdata/sample.log</td></tr>
+    <tr><th>级别分布</th><td>INFO × 9038，WARN × 378，ERROR × 494，UNKNOWN × 118，PARSE_ERROR × 177</td></tr>
+  </table>
+</section>
+
+
+<section>
+  <h2>问题诊断</h2>
+  <p class="note">LLM 调用失败，已降级为规则归纳（LLM 返回状态码 400: {&#34;error&#34;:{&#34;message&#34;:&#34;Access denied, please make sure your account is in good standing. For details, see: https://help.aliyun.com/zh/model-studio/error-code#overdue-payment&#34;,&#34;type&#34;:&#34;Arrearage&#34;,&#34;param&#34;:null,&#34;code&#34;:&#34;Arrearage&#34;},&#34;id&#34;:&#34;chatcmpl-4904cc78-3523-950e-8707-d4145eea13d9&#34;,&#34;request_id&#34;:&#34;4904cc78…）。以下结论来自规则归纳。</p>
+  <ul>
+    <li>共发现 <b>494</b> 条 ERROR/FATAL 日志，归并为 <b>3</b> 类错误模式，详见「错误归纳」。</li>
+    <li>存在 <b>10</b> 条超过 500ms 的慢请求，详见「Top 慢请求」。</li>
+    <li>存在 <b>146</b> 条未完成请求链路（有开始无结束，疑似中断或超时）。</li>
+    <li>规则推断的头号候选根因：模块 <b>Database</b> 的「slow query cost=*ms」（命中 164 条故障链路）。</li>
+    
+  </ul>
+</section>
+
+
+<section>
+  <h2>图表总览</h2>
+  <div class="chart-row">
+    <div><h3>日志级别分布</h3><div id="levelPie" class="chart"></div></div>
+    <div><h3>模块日志量与错误</h3><div id="moduleBar" class="chart"></div></div>
+  </div>
+  <h3>时间趋势（分钟级）</h3><div id="trendLine" class="chart"></div>
+</section>
+
+<section>
+  <h2>模块统计</h2>
+  <table>
+    <tr><th>模块</th><th>日志数量</th><th>ERROR 数量</th><th>ERROR 比例</th></tr>
+    
+    <tr>
+      <td class="mono">Gateway</td>
+      <td>3347</td>
+      <td><span class="tag err">270</span></td>
+      <td>8.07%</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">OrderService</td>
+      <td>1073</td>
+      <td><span class="tag err">118</span></td>
+      <td>11%</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">PaymentService</td>
+      <td>688</td>
+      <td><span class="tag err">101</span></td>
+      <td>14.68%</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">UNKNOWN</td>
+      <td>91</td>
+      <td><span class="tag err">5</span></td>
+      <td>5.49%</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">AuthService</td>
+      <td>1702</td>
+      <td>0</td>
+      <td>0%</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">Database</td>
+      <td>1555</td>
+      <td>0</td>
+      <td>0%</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">UserService</td>
+      <td>591</td>
+      <td>0</td>
+      <td>0%</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">NotificationService</td>
+      <td>586</td>
+      <td>0</td>
+      <td>0%</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">Cache</td>
+      <td>395</td>
+      <td>0</td>
+      <td>0%</td>
+    </tr>
+    
+  </table>
+</section>
+
+
+<section>
+  <h2>请求耗时分析</h2>
+  <h3>请求级（totalCost）总体</h3>
+  <table>
+    <tr><th>样本数</th><th>平均</th><th>P50</th><th>P95</th><th>P99</th><th>最大</th></tr>
+    
+    <tr><td>1617</td><td>488.3 ms</td><td>208 ms</td><td>2007 ms</td><td>3404.6 ms</td><td>3996 ms</td></tr>
+    
+  </table>
+  <div class="chart-row">
+    <div>
+      <h3>请求级耗时（totalCost）· 按模块</h3>
+      <table>
+        <tr><th>模块</th><th>样本</th><th>平均</th><th>P95</th><th>P99</th></tr>
+        
+        <tr><td class="mono">Gateway</td><td>1600</td><td>489.5 ms</td><td>2011.5 ms</td><td>3406 ms</td></tr>
+        
+        <tr><td class="mono">UNKNOWN</td><td>17</td><td>375.9 ms</td><td>894.6 ms</td><td>1584.5 ms</td></tr>
+        
+      </table>
+    </div>
+    <div>
+      <h3>操作级耗时（cost）· 按模块</h3>
+      <table>
+        <tr><th>模块</th><th>样本</th><th>平均</th><th>P95</th><th>P99</th></tr>
+        
+        <tr><td class="mono">Database</td><td>1555</td><td>457 ms</td><td>2553.3 ms</td><td>3701.4 ms</td></tr>
+        
+        <tr><td class="mono">PaymentService</td><td>688</td><td>83.4 ms</td><td>140 ms</td><td>146 ms</td></tr>
+        
+        <tr><td class="mono">UserService</td><td>591</td><td>70.2 ms</td><td>115 ms</td><td>118 ms</td></tr>
+        
+        <tr><td class="mono">UNKNOWN</td><td>51</td><td>64.2 ms</td><td>104 ms</td><td>899.5 ms</td></tr>
+        
+        <tr><td class="mono">OrderService</td><td>955</td><td>33.8 ms</td><td>58 ms</td><td>59 ms</td></tr>
+        
+        <tr><td class="mono">AuthService</td><td>1702</td><td>17.1 ms</td><td>28 ms</td><td>29 ms</td></tr>
+        
+        <tr><td class="mono">NotificationService</td><td>586</td><td>11.2 ms</td><td>18.7 ms</td><td>19 ms</td></tr>
+        
+        <tr><td class="mono">Cache</td><td>352</td><td>4.9 ms</td><td>9 ms</td><td>9 ms</td></tr>
+        
+      </table>
+    </div>
+  </div>
+</section>
+
+
+
+<section>
+  <h2>错误归纳（相似错误已聚类）</h2>
+  <table>
+    <tr><th>错误模式</th><th>次数</th><th>影响链路</th><th>涉及模块</th><th>首次出现</th><th>末次出现</th><th>示例日志</th></tr>
+    
+    <tr>
+      <td><span class="tag err">request failed status=* totalCost=*ms</span></td>
+      <td>272</td>
+      <td>268</td>
+      <td class="mono">Gateway</td>
+      <td class="mono">2026-08-10 10:00:07</td>
+      <td class="mono">2026-08-10 10:29:41</td>
+      <td class="sample mono">2026-08-10 10:00:07.853 ERROR [traceId=bli970] request failed status=502 totalCost=184ms</td>
+    </tr>
+    
+    <tr>
+      <td><span class="tag err">database_timeout</span></td>
+      <td>121</td>
+      <td>120</td>
+      <td class="mono">OrderService</td>
+      <td class="mono">2026-08-10 10:10:01</td>
+      <td class="mono">2026-08-10 10:12:59</td>
+      <td class="sample mono">2026-08-10 10:10:01.055 ERROR [OrderService] [traceId=ayq640] query order failed error=database_timeout</td>
+    </tr>
+    
+    <tr>
+      <td><span class="tag err">network_error</span></td>
+      <td>101</td>
+      <td>100</td>
+      <td class="mono">PaymentService</td>
+      <td class="mono">2026-08-10 10:00:07</td>
+      <td class="mono">2026-08-10 10:29:41</td>
+      <td class="sample mono">2026-08-10 10:00:07.843 ERROR [PaymentService] [traceId=bli970] charge failed error=network_error cost=72ms</td>
+    </tr>
+    
+  </table>
+</section>
+
+
+
+<section>
+  <h2>Top 慢请求（阈值 500ms）</h2>
+  <table>
+    <tr><th>traceId</th><th>总耗时</th><th>模块链路</th><th>含错误</th><th>开始时间</th></tr>
+    
+    <tr>
+      <td class="mono">bth177</td>
+      <td>3996 ms</td>
+      <td class="mono">Gateway → AuthService → Database</td>
+      <td><span class="tag err">是</span></td>
+      <td class="mono">2026-08-10 10:14:31</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">byf305</td>
+      <td>3986 ms</td>
+      <td class="mono">Gateway → AuthService → Database</td>
+      <td><span class="tag err">是</span></td>
+      <td class="mono">2026-08-10 10:08:17</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">azo664</td>
+      <td>3957 ms</td>
+      <td class="mono">Gateway → AuthService → Database</td>
+      <td><span class="tag err">是</span></td>
+      <td class="mono">2026-08-10 10:22:44</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">ckv633</td>
+      <td>3914 ms</td>
+      <td class="mono">Gateway → AuthService → Database</td>
+      <td><span class="tag err">是</span></td>
+      <td class="mono">2026-08-10 10:27:49</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">anm350</td>
+      <td>3907 ms</td>
+      <td class="mono">Gateway → AuthService → Database</td>
+      <td><span class="tag err">是</span></td>
+      <td class="mono">2026-08-10 10:01:56</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">cbs396</td>
+      <td>3871 ms</td>
+      <td class="mono">Gateway → AuthService → Database</td>
+      <td><span class="tag err">是</span></td>
+      <td class="mono">2026-08-10 10:10:00</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">ccm416</td>
+      <td>3808 ms</td>
+      <td class="mono">Gateway → AuthService → Database</td>
+      <td><span class="tag err">是</span></td>
+      <td class="mono">2026-08-10 10:08:42</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">bhp873</td>
+      <td>3690 ms</td>
+      <td class="mono">Gateway → AuthService → Database</td>
+      <td><span class="tag err">是</span></td>
+      <td class="mono">2026-08-10 10:02:41</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">agu176</td>
+      <td>3582 ms</td>
+      <td class="mono">Gateway → Database</td>
+      <td><span class="tag err">是</span></td>
+      <td class="mono">2026-08-10 10:21:20</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">bot059</td>
+      <td>3555 ms</td>
+      <td class="mono">Gateway → AuthService → Database</td>
+      <td><span class="tag err">是</span></td>
+      <td class="mono">2026-08-10 10:15:40</td>
+    </tr>
+    
+  </table>
+</section>
+
+
+
+<section>
+  <h2>未完成请求（共 146 条，展示前 10 条）</h2>
+  <table>
+    <tr><th>traceId</th><th>模块链路</th><th>含错误</th><th>开始时间</th><th>最后日志时间</th></tr>
+    
+    <tr>
+      <td class="mono">aah007</td>
+      <td class="mono">Gateway</td>
+      <td><span class="tag">否</span></td>
+      <td class="mono">2026-08-10 10:29:43</td>
+      <td class="mono">2026-08-10 10:29:43</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">ayk634</td>
+      <td class="mono">Gateway → AuthService → UserService → Cache → Database</td>
+      <td><span class="tag">否</span></td>
+      <td class="mono">2026-08-10 10:29:38</td>
+      <td class="mono">2026-08-10 10:29:38</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">ckw634</td>
+      <td class="mono">Gateway → AuthService</td>
+      <td><span class="tag">否</span></td>
+      <td class="mono">2026-08-10 10:29:35</td>
+      <td class="mono">2026-08-10 10:29:35</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">aws590</td>
+      <td class="mono">Gateway → AuthService</td>
+      <td><span class="tag">否</span></td>
+      <td class="mono">2026-08-10 10:29:31</td>
+      <td class="mono">2026-08-10 10:29:31</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">awf577</td>
+      <td class="mono">Gateway → AuthService → Database</td>
+      <td><span class="tag">否</span></td>
+      <td class="mono">2026-08-10 10:29:27</td>
+      <td class="mono">2026-08-10 10:29:30</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">boi048</td>
+      <td class="mono">Gateway → AuthService</td>
+      <td><span class="tag">否</span></td>
+      <td class="mono">2026-08-10 10:29:19</td>
+      <td class="mono">2026-08-10 10:29:19</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">awg578</td>
+      <td class="mono">Gateway → AuthService → Database → OrderService</td>
+      <td><span class="tag">否</span></td>
+      <td class="mono">2026-08-10 10:29:05</td>
+      <td class="mono">2026-08-10 10:29:06</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">avg552</td>
+      <td class="mono">Gateway → AuthService</td>
+      <td><span class="tag">否</span></td>
+      <td class="mono">2026-08-10 10:28:59</td>
+      <td class="mono">2026-08-10 10:28:59</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">aci060</td>
+      <td class="mono">Gateway → AuthService → Database</td>
+      <td><span class="tag">否</span></td>
+      <td class="mono">2026-08-10 10:28:34</td>
+      <td class="mono">2026-08-10 10:28:38</td>
+    </tr>
+    
+    <tr>
+      <td class="mono">cjy610</td>
+      <td class="mono">Gateway → AuthService → Database</td>
+      <td><span class="tag">否</span></td>
+      <td class="mono">2026-08-10 10:28:27</td>
+      <td class="mono">2026-08-10 10:28:29</td>
+    </tr>
+    
+  </table>
+</section>
+
+
+
+<section>
+  <h2>候选根因（规则推断）</h2>
+  <p class="note">按时间序定位每条故障链路中的首个异常事件（WARN/ERROR），跨链路统计其作为“首异常点”出现的次数。</p>
+  <table>
+    <tr><th>#</th><th>候选根因</th><th>模块</th><th>命中故障链路数</th><th>示例 traceId</th></tr>
+    
+    <tr>
+      <td>0</td>
+      <td><span class="tag warn">slow query cost=*ms</span></td>
+      <td class="mono">Database</td>
+      <td>164</td>
+      <td class="mono">afy154, cmf669, aip223</td>
+    </tr>
+    
+    <tr>
+      <td>1</td>
+      <td><span class="tag warn">network_error</span></td>
+      <td class="mono">PaymentService</td>
+      <td>98</td>
+      <td class="mono">bli970, axc600, agq172</td>
+    </tr>
+    
+    <tr>
+      <td>2</td>
+      <td><span class="tag warn">database_timeout</span></td>
+      <td class="mono">OrderService</td>
+      <td>6</td>
+      <td class="mono">ale290, and341, aag006</td>
+    </tr>
+    
+    <tr>
+      <td>3</td>
+      <td><span class="tag warn">request failed status=* totalCost=*ms</span></td>
+      <td class="mono">Gateway</td>
+      <td>6</td>
+      <td class="mono">cby402, bbb703, aao014</td>
+    </tr>
+    
+    <tr>
+      <td>4</td>
+      <td><span class="tag warn">slow query cost=*ms</span></td>
+      <td class="mono"></td>
+      <td>1</td>
+      <td class="mono">ace056</td>
+    </tr>
+    
+  </table>
+</section>
+
+
+</main>
+
+<script>
+(function () {
+  if (!window.echarts) { return; }
+  var levelData = [{"name":"INFO","value":9038},{"name":"WARN","value":378},{"name":"ERROR","value":494},{"name":"UNKNOWN","value":118},{"name":"PARSE_ERROR","value":177}];
+  var trendData = {"buckets":["08-10 10:00","08-10 10:01","08-10 10:02","08-10 10:03","08-10 10:04","08-10 10:05","08-10 10:06","08-10 10:07","08-10 10:08","08-10 10:09","08-10 10:10","08-10 10:11","08-10 10:12","08-10 10:13","08-10 10:14","08-10 10:15","08-10 10:16","08-10 10:17","08-10 10:18","08-10 10:19","08-10 10:20","08-10 10:21","08-10 10:22","08-10 10:23","08-10 10:24","08-10 10:25","08-10 10:26","08-10 10:27","08-10 10:28","08-10 10:29"],"levels":["INFO","WARN","ERROR","UNKNOWN"],"series":{"ERROR":[12,9,12,4,7,8,3,10,6,9,77,83,101,3,7,10,5,13,9,7,17,12,6,8,14,8,10,2,9,8],"INFO":[245,323,313,273,275,299,245,291,329,300,478,400,402,302,259,261,259,326,264,221,328,303,329,215,291,336,236,296,299,237],"UNKNOWN":[2,0,9,1,0,3,2,3,6,4,6,9,5,5,0,0,5,2,0,3,4,3,0,2,7,4,2,5,1,2],"WARN":[12,10,11,10,12,11,5,5,6,4,44,47,53,6,11,12,5,13,6,5,10,7,11,6,7,10,10,11,9,5]},"avgCost":[532.2,383.3,483.7,330,469,451.6,266.7,378.2,387.9,286.8,786.4,852.3,936.4,299.2,427.5,612.5,300.6,522.3,305.9,369.3,382.2,382.7,446.7,410.2,291.2,465.1,573.3,514.7,438.8,349.9]};
+  var moduleData = {"modules":["Gateway","OrderService","PaymentService","UNKNOWN","AuthService","Database","UserService","NotificationService","Cache"],"total":[3347,1073,688,91,1702,1555,591,586,395],"errors":[270,118,101,5,0,0,0,0,0],"errorRate":[8.1,11,14.7,5.5,0,0,0,0,0]};
+  var palette = { INFO:'#3370ff', WARN:'#ff8800', ERROR:'#d83931', FATAL:'#7a1f1a', DEBUG:'#8f959e', TRACE:'#c4c9d1', UNKNOWN:'#e2c08d', PARSE_ERROR:'#a259d8' };
+
+  function mount(id, option) {
+    var el = document.getElementById(id);
+    if (!el) { return; }
+    var chart = echarts.init(el);
+    chart.setOption(option);
+    window.addEventListener('resize', function () { chart.resize(); });
+  }
+
+  mount('levelPie', {
+    tooltip: { trigger: 'item' },
+    color: (levelData || []).map(function (d) { return palette[d.name] || '#999'; }),
+    series: [{ type: 'pie', radius: ['40%','70%'], data: levelData,
+      label: { formatter: '{b}: {c}' } }]
+  });
+
+  mount('moduleBar', {
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['日志数量', 'ERROR 数量', 'ERROR 比例'] },
+    xAxis: { type: 'category', data: moduleData.modules, axisLabel: { rotate: 20 } },
+    yAxis: [{ type: 'value', name: '条数' }, { type: 'value', name: '错误率%', max: 100 }],
+    series: [
+      { name: '日志数量', type: 'bar', data: moduleData.total, itemStyle: { color: '#3370ff' } },
+      { name: 'ERROR 数量', type: 'bar', data: moduleData.errors, itemStyle: { color: '#d83931' } },
+      { name: 'ERROR 比例', type: 'line', yAxisIndex: 1, data: moduleData.errorRate, itemStyle: { color: '#ff8800' } }
+    ]
+  });
+
+  if (trendData && trendData.buckets && trendData.buckets.length) {
+    var series = trendData.levels.map(function (l) {
+      return { name: l, type: 'line', smooth: true, stack: 'lv', areaStyle: { opacity: 0.15 },
+        data: trendData.series[l], itemStyle: { color: palette[l] || '#999' } };
+    });
+    series.push({ name: '平均耗时(ms)', type: 'line', yAxisIndex: 1, smooth: true,
+      data: trendData.avgCost, itemStyle: { color: '#1f2329' }, lineStyle: { type: 'dashed' } });
+    mount('trendLine', {
+      tooltip: { trigger: 'axis' },
+      legend: {},
+      xAxis: { type: 'category', data: trendData.buckets },
+      yAxis: [{ type: 'value', name: '条数' }, { type: 'value', name: '平均耗时 ms' }],
+      series: series
+    });
+  }
+})();
+</script>
+</body>
+</html>
