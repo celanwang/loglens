@@ -40,6 +40,8 @@ func Build(entries []model.Entry, opts Options) *model.Report {
 	traces := buildTraces(entries)
 	buildSlowAndUnfinished(traces, entries, r, opts)
 	buildErrorGroups(entries, r)
+	buildRootCauses(traces, entries, r)
+	buildTrend(entries, r)
 	return r
 }
 
