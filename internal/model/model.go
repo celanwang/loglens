@@ -41,6 +41,7 @@ type Overview struct {
 	TotalLines   int
 	ParsedLines  int
 	FailedLines  int
+	TraceCount   int
 	StartTime    time.Time
 	EndTime      time.Time
 	HasTimeRange bool

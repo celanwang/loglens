@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>loglens 智能日志分析报告</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+  :root { --fg:#1f2329; --muted:#8f959e; --border:#e5e6eb; --bg:#f7f8fa; --card:#fff; --accent:#3370ff; --err:#d83931; --warn:#ff8800; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:0 0 48px; background:var(--bg); color:var(--fg); font:14px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif; }
+  header { background:linear-gradient(135deg,#1f3b73,#3370ff); color:#fff; padding:28px 40px; }
+  header h1 { margin:0 0 6px; font-size:22px; }
+  header p { margin:0; opacity:.85; font-size:13px; }
+  main { max-width:1180px; margin:0 auto; padding:0 20px; }
+  section { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:20px 24px; margin-top:20px; }
+  h2 { font-size:16px; margin:0 0 14px; padding-left:10px; border-left:4px solid var(--accent); }
+  h3 { font-size:14px; margin:16px 0 8px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-top:-38px; padding:0 20px; max-width:1180px; margin-left:auto; margin-right:auto; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 16px; box-shadow:0 2px 8px rgba(31,35,41,.04); }
+  .card .num { font-size:22px; font-weight:600; }
+  .card .label { color:var(--muted); font-size:12px; }
+  .card.bad .num { color:var(--err); }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); vertical-align:top; }
+  th { color:var(--muted); font-weight:500; white-space:nowrap; }
+  tr:last-child td { border-bottom:none; }
+  .chart { height:320px; }
+  .chart-row { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:900px){ .chart-row { grid-template-columns:1fr; } }
+  .llm { white-space:pre-wrap; background:#f2f6ff; border:1px solid #d6e4ff; border-radius:8px; padding:14px 16px; }
+  .note { color:var(--muted); }
+  .tag { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; background:#eef0f3; }
+  .tag.err { background:#fdeceb; color:var(--err); }
+  .tag.warn { background:#fff3e0; color:var(--warn); }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
+  .sample { color:var(--muted); word-break:break-all; }
+  .files { color:var(--muted); font-size:12px; margin-top:4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>智能日志分析报告</h1>
+  <p>生成时间：{{.GeneratedAt}} · 由 loglens 生成</p>
+</header>
+
+<div class="cards">
+  <div class="card"><div class="num">{{.Overview.TotalLines}}</div><div class="label">日志总行数</div></div>
+  <div class="card{{if gt .Overview.FailedLines 0}} bad{{end}}"><div class="num">{{.Overview.FailedLines}}</div><div class="label">解析失败（{{.FailRate}}%）</div></div>
+  <div class="card{{if gt .ErrorCount 0}} bad{{end}}"><div class="num">{{.ErrorCount}}</div><div class="label">ERROR / FATAL</div></div>
+  <div class="card"><div class="num">{{.WarnCount}}</div><div class="label">WARN</div></div>
+  <div class="card"><div class="num">{{.Overview.TraceCount}}</div><div class="label">请求链路（traceId）</div></div>
+  {{if .HasLatency}}<div class="card"><div class="num">{{ms .Latency.RequestOverall.P95}} ms</div><div class="label">请求耗时 P95</div></div>{{end}}
+</div>
+
+<main>
+<section>
+  <h2>数据概览</h2>
+  <table>
+    <tr><th>时间范围</th><td>{{.TimeRange}}</td></tr>
+    <tr><th>日志文件</th><td>{{join .Overview.Files ", "}}</td></tr>
+    <tr><th>级别分布</th><td>{{.LevelSummary}}</td></tr>
+  </table>
+</section>
+
+{{if .LLMSummary}}
+<section>
+  <h2>LLM 智能诊断</h2>
+  <div class="llm">{{.LLMSummary}}</div>
+</section>
+{{else if .LLMNote}}
+<section>
+  <h2>问题诊断</h2>
+  <p class="note">{{.LLMNote}}以下结论来自规则归纳。</p>
+  <ul>
+    {{if gt .ErrorCount 0}}<li>共发现 <b>{{.ErrorCount}}</b> 条 ERROR/FATAL 日志，归并为 <b>{{len .Errors}}</b> 类错误模式，详见「错误归纳」。</li>{{end}}
+    {{if gt (len .SlowTraces) 0}}<li>存在 <b>{{len .SlowTraces}}</b> 条超过 {{ms .SlowThresholdMs}}ms 的慢请求，详见「Top 慢请求」。</li>{{end}}
+    {{if gt .UnfinishedTotal 0}}<li>存在 <b>{{.UnfinishedTotal}}</b> 条未完成请求链路（有开始无结束，疑似中断或超时）。</li>{{end}}
+    {{if gt (len .RootCauses) 0}}<li>规则推断的头号候选根因：模块 <b>{{(index .RootCauses 0).Module}}</b> 的「{{(index .RootCauses 0).Candidate}}」（命中 {{(index .RootCauses 0).Hits}} 条故障链路）。</li>{{end}}
+    {{if eq .ErrorCount 0}}<li>未发现 ERROR 级别日志，系统运行正常。</li>{{end}}
+  </ul>
+</section>
+{{end}}
+
+<section>
+  <h2>图表总览</h2>
+  <div class="chart-row">
+    <div><h3>日志级别分布</h3><div id="levelPie" class="chart"></div></div>
+    <div><h3>模块日志量与错误</h3><div id="moduleBar" class="chart"></div></div>
+  </div>
+  {{if .HasTrend}}<h3>时间趋势（分钟级）</h3><div id="trendLine" class="chart"></div>{{end}}
+</section>
+
+<section>
+  <h2>模块统计</h2>
+  <table>
+    <tr><th>模块</th><th>日志数量</th><th>ERROR 数量</th><th>ERROR 比例</th></tr>
+    {{range .Modules}}
+    <tr>
+      <td class="mono">{{.Module}}</td>
+      <td>{{.Total}}</td>
+      <td>{{if gt .Errors 0}}<span class="tag err">{{.Errors}}</span>{{else}}0{{end}}</td>
+      <td>{{pct .ErrorRate}}%</td>
+    </tr>
+    {{end}}
+  </table>
+</section>
+
+{{if .HasLatency}}
+<section>
+  <h2>请求耗时分析</h2>
+  <h3>请求级（totalCost）总体</h3>
+  <table>
+    <tr><th>样本数</th><th>平均</th><th>P50</th><th>P95</th><th>P99</th><th>最大</th></tr>
+    {{with .Latency.RequestOverall}}
+    <tr><td>{{.Count}}</td><td>{{ms .Avg}} ms</td><td>{{ms .P50}} ms</td><td>{{ms .P95}} ms</td><td>{{ms .P99}} ms</td><td>{{ms .Max}} ms</td></tr>
+    {{end}}
+  </table>
+  <div class="chart-row">
+    <div>
+      <h3>请求级耗时（totalCost）· 按模块</h3>
+      <table>
+        <tr><th>模块</th><th>样本</th><th>平均</th><th>P95</th><th>P99</th></tr>
+        {{range .Latency.RequestByModule}}
+        <tr><td class="mono">{{.Module}}</td><td>{{.Stat.Count}}</td><td>{{ms .Stat.Avg}} ms</td><td>{{ms .Stat.P95}} ms</td><td>{{ms .Stat.P99}} ms</td></tr>
+        {{end}}
+      </table>
+    </div>
+    <div>
+      <h3>操作级耗时（cost）· 按模块</h3>
+      <table>
+        <tr><th>模块</th><th>样本</th><th>平均</th><th>P95</th><th>P99</th></tr>
+        {{range .Latency.OpByModule}}
+        <tr><td class="mono">{{.Module}}</td><td>{{.Stat.Count}}</td><td>{{ms .Stat.Avg}} ms</td><td>{{ms .Stat.P95}} ms</td><td>{{ms .Stat.P99}} ms</td></tr>
+        {{end}}
+      </table>
+    </div>
+  </div>
+</section>
+{{end}}
+
+{{if .Errors}}
+<section>
+  <h2>错误归纳（相似错误已聚类）</h2>
+  <table>
+    <tr><th>错误模式</th><th>次数</th><th>影响链路</th><th>涉及模块</th><th>首次出现</th><th>末次出现</th><th>示例日志</th></tr>
+    {{range .Errors}}
+    <tr>
+      <td><span class="tag err">{{.Key}}</span></td>
+      <td>{{.Count}}</td>
+      <td>{{.TraceCount}}</td>
+      <td class="mono">{{join .Modules ", "}}</td>
+      <td class="mono">{{ftime .First}}</td>
+      <td class="mono">{{ftime .Last}}</td>
+      <td class="sample mono">{{.Sample}}</td>
+    </tr>
+    {{end}}
+  </table>
+</section>
+{{end}}
+
+{{if .SlowTraces}}
+<section>
+  <h2>Top 慢请求（阈值 {{ms .SlowThresholdMs}}ms）</h2>
+  <table>
+    <tr><th>traceId</th><th>总耗时</th><th>模块链路</th><th>含错误</th><th>开始时间</th></tr>
+    {{range .SlowTraces}}
+    <tr>
+      <td class="mono">{{.TraceID}}</td>
+      <td>{{ms .TotalCost}} ms</td>
+      <td class="mono">{{join .Modules " → "}}</td>
+      <td>{{if .HasError}}<span class="tag err">是</span>{{else}}<span class="tag">否</span>{{end}}</td>
+      <td class="mono">{{ftime .Start}}</td>
+    </tr>
+    {{end}}
+  </table>
+</section>
+{{end}}
+
+{{if .Unfinished}}
+<section>
+  <h2>未完成请求（共 {{.UnfinishedTotal}} 条，展示前 {{len .Unfinished}} 条）</h2>
+  <table>
+    <tr><th>traceId</th><th>模块链路</th><th>含错误</th><th>开始时间</th><th>最后日志时间</th></tr>
+    {{range .Unfinished}}
+    <tr>
+      <td class="mono">{{.TraceID}}</td>
+      <td class="mono">{{join .Modules " → "}}</td>
+      <td>{{if .HasError}}<span class="tag err">是</span>{{else}}<span class="tag">否</span>{{end}}</td>
+      <td class="mono">{{ftime .Start}}</td>
+      <td class="mono">{{ftime .End}}</td>
+    </tr>
+    {{end}}
+  </table>
+</section>
+{{end}}
+
+{{if .RootCauses}}
+<section>
+  <h2>候选根因（规则推断）</h2>
+  <p class="note">按时间序定位每条故障链路中的首个异常事件（WARN/ERROR），跨链路统计其作为“首异常点”出现的次数。</p>
+  <table>
+    <tr><th>#</th><th>候选根因</th><th>模块</th><th>命中故障链路数</th><th>示例 traceId</th></tr>
+    {{range $i, $rc := .RootCauses}}
+    <tr>
+      <td>{{$i}}</td>
+      <td><span class="tag warn">{{$rc.Candidate}}</span></td>
+      <td class="mono">{{$rc.Module}}</td>
+      <td>{{$rc.Hits}}</td>
+      <td class="mono">{{join $rc.SampleTraces ", "}}</td>
+    </tr>
+    {{end}}
+  </table>
+</section>
+{{end}}
+
+</main>
+
+<script>
+(function () {
+  if (!window.echarts) { return; }
+  var levelData = {{.LevelPieJSON}};
+  var trendData = {{.TrendJSON}};
+  var moduleData = {{.ModuleJSON}};
+  var palette = { INFO:'#3370ff', WARN:'#ff8800', ERROR:'#d83931', FATAL:'#7a1f1a', DEBUG:'#8f959e', TRACE:'#c4c9d1', UNKNOWN:'#e2c08d', PARSE_ERROR:'#a259d8' };
+
+  function mount(id, option) {
+    var el = document.getElementById(id);
+    if (!el) { return; }
+    var chart = echarts.init(el);
+    chart.setOption(option);
+    window.addEventListener('resize', function () { chart.resize(); });
+  }
+
+  mount('levelPie', {
+    tooltip: { trigger: 'item' },
+    color: (levelData || []).map(function (d) { return palette[d.name] || '#999'; }),
+    series: [{ type: 'pie', radius: ['40%','70%'], data: levelData,
+      label: { formatter: '{b}: {c}' } }]
+  });
+
+  mount('moduleBar', {
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['日志数量', 'ERROR 数量', 'ERROR 比例'] },
+    xAxis: { type: 'category', data: moduleData.modules, axisLabel: { rotate: 20 } },
+    yAxis: [{ type: 'value', name: '条数' }, { type: 'value', name: '错误率%', max: 100 }],
+    series: [
+      { name: '日志数量', type: 'bar', data: moduleData.total, itemStyle: { color: '#3370ff' } },
+      { name: 'ERROR 数量', type: 'bar', data: moduleData.errors, itemStyle: { color: '#d83931' } },
+      { name: 'ERROR 比例', type: 'line', yAxisIndex: 1, data: moduleData.errorRate, itemStyle: { color: '#ff8800' } }
+    ]
+  });
+
+  if (trendData && trendData.buckets && trendData.buckets.length) {
+    var series = trendData.levels.map(function (l) {
+      return { name: l, type: 'line', smooth: true, stack: 'lv', areaStyle: { opacity: 0.15 },
+        data: trendData.series[l], itemStyle: { color: palette[l] || '#999' } };
+    });
+    series.push({ name: '平均耗时(ms)', type: 'line', yAxisIndex: 1, smooth: true,
+      data: trendData.avgCost, itemStyle: { color: '#1f2329' }, lineStyle: { type: 'dashed' } });
+    mount('trendLine', {
+      tooltip: { trigger: 'axis' },
+      legend: {},
+      xAxis: { type: 'category', data: trendData.buckets },
+      yAxis: [{ type: 'value', name: '条数' }, { type: 'value', name: '平均耗时 ms' }],
+      series: series
+    });
+  }
+})();
+</script>
+</body>
+</html>
