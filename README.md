@@ -13,7 +13,7 @@
 - **未完成请求**：识别"有 request start 无 request end"的中断链路
 - **时间趋势**：分钟级日志量与平均耗时趋势图表
 - **候选根因**：基于故障链路内"首个异常点"的跨链路聚合推断
-- **LLM 智能诊断**：接入阿里云百炼（默认 qwen3.7-plus），基于统计结论生成问题诊断与排查建议；未配置或调用失败时自动降级为规则归纳
+- **LLM 智能诊断**：支持 DeepSeek（默认优先，模型 `deepseek-flash`）与阿里云百炼 qwen 两家 Provider，基于统计结论生成问题诊断与排查建议；未配置或调用失败时自动降级为规则归纳
 - **容错解析**：乱格式行、字段缺失行、大小写抖动均能容错处理并计入统计
 
 ## 环境要求
@@ -63,17 +63,27 @@ go run ./scripts/genlogs -out testdata/sample.log -lines 10000 -seed 42
 
 ## 配置（LLM 接入）
 
-复制 `.env.example` 为 `.env` 并填入百炼 API Key：
+复制 `.env.example` 为 `.env` 并填入对应 Provider 的 API Key：
 
 ```dotenv
-DASHSCOPE_API_KEY=sk-xxx
-LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-LLM_MODEL=qwen3.7-plus
+# Provider：deepseek（默认，优先）或 qwen；auto 表示按已配置的 Key 自动推断
+LLM_PROVIDER=deepseek
+
+# DeepSeek（默认）
+DEEPSEEK_API_KEY=sk-xxx
+LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL=deepseek-flash
+
+# 阿里云百炼 qwen（备选，LLM_PROVIDER=qwen 时改用下方 URL 与模型）
+# DASHSCOPE_API_KEY=sk-xxx
+# LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+# LLM_MODEL=qwen3.7-plus
+
 LLM_TIMEOUT=30s
 LLM_ENABLED=true
 ```
 
-进程环境变量优先于 `.env` 文件。未配置 key、`LLM_ENABLED=false` 或调用失败时，报告自动降级为规则归纳并标注原因。
+Key 解析顺序：通用 `LLM_API_KEY` → 当前 Provider 专用 Key（`DEEPSEEK_API_KEY` / `DASHSCOPE_API_KEY`）→ 另一家 Provider 的 Key（便于两家共用同一个条目）。进程环境变量优先于 `.env` 文件。未配置 key、`LLM_ENABLED=false` 或调用失败时，报告自动降级为规则归纳并标注原因。
 
 ## 日志格式
 

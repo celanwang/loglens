@@ -10,7 +10,7 @@
 | 交互形态 | CLI | PRD 未限定形态，CLI 最直接、评审成本最低 |
 | 报告 | HTML（中文），图表用 ECharts | 单一输出格式，内嵌图表支撑"图表展示/趋势分析"增强项 |
 | 第三方依赖 | **零外部依赖**（仅标准库） | `.env` 解析、百分位计算、HTTP 调用均手写，安装零负担 |
-| LLM | 阿里云百炼（DashScope），模型 `qwen3.7-plus` | 走 OpenAI 兼容端点，标准库 `net/http` 直连，无需 SDK |
+| LLM | OpenAI 兼容端点，Provider 预设支持 DeepSeek（默认优先，`deepseek-flash`）与阿里云百炼 qwen（`qwen3.7-plus`） | 两家均为 OpenAI 兼容协议，标准库 `net/http` 直连，无需 SDK |
 
 ## 2. 整体架构
 
@@ -99,18 +99,27 @@ type Report struct {
 - **候选根因**：同一 traceId 内按时间序找首个 ERROR/WARN 事件，结合跨 trace 的共现统计（如 `slow query` 先于 `database_timeout` 出现的频次）给出排序候选。
 - **LLM 总结**：把错误归组 Top N + 慢请求 Top N + 根因候选压缩为 prompt，调用百炼生成 3~5 条中文诊断与处置建议。
 
-## 6. LLM 接入（.env 抽象）
+## 6. LLM 接入（.env 抽象 + Provider 预设）
 
 ```dotenv
 # .env.example
-DASHSCOPE_API_KEY=sk-xxx
-LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-LLM_MODEL=qwen3.7-plus
+LLM_PROVIDER=deepseek        # deepseek（默认，优先）/ qwen / auto（按已配置 Key 推断）
+
+DEEPSEEK_API_KEY=sk-xxx      # DeepSeek 专用 Key
+LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL=deepseek-flash
+
+# DASHSCOPE_API_KEY=sk-xxx   # 百炼 qwen 专用 Key（备选）
+# LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+# LLM_MODEL=qwen3.7-plus
+
 LLM_TIMEOUT=30s
 LLM_ENABLED=true
 ```
 
-- 仅标准库 `net/http` POST `/chat/completions`（OpenAI 兼容模式）；
+- 两家 Provider 均为 OpenAI 兼容协议，仅标准库 `net/http` POST `/chat/completions`；
+- Provider 预设提供默认端点与模型，`LLM_BASE_URL` / `LLM_MODEL` 可显式覆盖；
+- Key 解析顺序：`LLM_API_KEY` → 当前 Provider 专用 Key → 另一家 Provider 的 Key（兼容共用条目）；
 - 未配置 key、`LLM_ENABLED=false`、调用超时或返回异常 → 静默降级为规则摘要，报告中标注"LLM 未启用"。
 
 ## 7. 项目结构

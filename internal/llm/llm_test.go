@@ -13,37 +13,68 @@ import (
 	"github.com/celanwang/loglens/internal/model"
 )
 
-func TestLoadConfigFromDotEnv(t *testing.T) {
-	dir := t.TempDir()
-	envFile := filepath.Join(dir, ".env")
-	content := "# comment\n" +
-		"DASHSCOPE_API_KEY=sk-test-123\n" +
-		"LLM_MODEL=qwen-plus\n" +
-		"LLM_TIMEOUT=10s\n" +
-		"LLM_ENABLED=true\n" +
-		"bad line without equals\n"
-	if err := os.WriteFile(envFile, []byte(content), 0o600); err != nil {
+func writeEnv(t *testing.T, content string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg := LoadConfig(envFile)
-	if cfg.APIKey != "sk-test-123" {
-		t.Errorf("APIKey 读取错误: %q", cfg.APIKey)
+	return p
+}
+
+func TestLoadConfigExplicitProvider(t *testing.T) {
+	cfg := LoadConfig(writeEnv(t,
+		"LLM_PROVIDER=qwen\nDASHSCOPE_API_KEY=sk-qwen-1\nLLM_MODEL=qwen-plus\nLLM_TIMEOUT=10s\n"))
+	if cfg.Provider != "qwen" || cfg.APIKey != "sk-qwen-1" {
+		t.Errorf("qwen Provider 解析错误: %+v", cfg)
 	}
 	if cfg.Model != "qwen-plus" || cfg.Timeout != 10*time.Second {
-		t.Errorf("模型/超时读取错误: %+v", cfg)
+		t.Errorf("显式覆盖未生效: %+v", cfg)
 	}
 	if !cfg.Available() {
 		t.Error("配置完整时 Available 应为 true")
 	}
 }
 
+func TestLoadConfigDeepSeekPreferred(t *testing.T) {
+	// 两家 Key 都存在且未指定 Provider 时，优先 DeepSeek
+	cfg := LoadConfig(writeEnv(t, "DEEPSEEK_API_KEY=sk-ds-1\nDASHSCOPE_API_KEY=sk-qwen-1\n"))
+	if cfg.Provider != "deepseek" || cfg.APIKey != "sk-ds-1" {
+		t.Errorf("DeepSeek 应优先: %+v", cfg)
+	}
+	if cfg.BaseURL != "https://api.deepseek.com" || cfg.Model != "deepseek-flash" {
+		t.Errorf("DeepSeek 预设端点/模型错误: %+v", cfg)
+	}
+}
+
+func TestLoadConfigKeyFallback(t *testing.T) {
+	// 显式指定 deepseek 但只有 qwen 的 Key：回退共用
+	cfg := LoadConfig(writeEnv(t, "LLM_PROVIDER=deepseek\nDASHSCOPE_API_KEY=sk-shared\n"))
+	if cfg.APIKey != "sk-shared" {
+		t.Errorf("应回退使用另一家 Key: %+v", cfg)
+	}
+	// 通用 LLM_API_KEY 优先级最高
+	cfg = LoadConfig(writeEnv(t, "LLM_API_KEY=sk-generic\nDEEPSEEK_API_KEY=sk-ds-1\n"))
+	if cfg.APIKey != "sk-generic" {
+		t.Errorf("LLM_API_KEY 应优先: %+v", cfg)
+	}
+}
+
 func TestLoadConfigDefaultsAndDisabled(t *testing.T) {
 	cfg := LoadConfig(filepath.Join(t.TempDir(), "nonexistent.env"))
-	if cfg.BaseURL != defaultBaseURL || cfg.Model != defaultModel || cfg.Timeout != defaultTimeout {
-		t.Errorf("缺省配置错误: %+v", cfg)
+	if cfg.Provider != "deepseek" || cfg.BaseURL != "https://api.deepseek.com" || cfg.Model != "deepseek-flash" {
+		t.Errorf("缺省应为 DeepSeek 预设: %+v", cfg)
+	}
+	if cfg.Timeout != defaultTimeout {
+		t.Errorf("缺省超时错误: %+v", cfg)
 	}
 	if cfg.Available() {
 		t.Error("无 API Key 时 Available 应为 false")
+	}
+
+	cfg = LoadConfig(writeEnv(t, "DEEPSEEK_API_KEY=sk-ds-1\nLLM_ENABLED=off\n"))
+	if cfg.Enabled {
+		t.Error("LLM_ENABLED=off 应禁用")
 	}
 }
 
@@ -67,7 +98,7 @@ func TestSummarizeWithMockServer(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := Config{APIKey: "sk-test", BaseURL: srv.URL, Model: "qwen3.7-plus", Timeout: 5 * time.Second, Enabled: true}
+	cfg := Config{APIKey: "sk-test", BaseURL: srv.URL, Model: "deepseek-flash", Timeout: 5 * time.Second, Enabled: true}
 	got, err := NewClient(cfg).Summarize(context.Background(), "测试 prompt")
 	if err != nil {
 		t.Fatal(err)

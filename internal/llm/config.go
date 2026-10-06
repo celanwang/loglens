@@ -1,5 +1,6 @@
-// Package llm 封装阿里云百炼（DashScope）OpenAI 兼容端点的调用，
-// 配置统一从 .env 文件与进程环境变量读取；调用失败时由调用方降级为规则摘要。
+// Package llm 封装 OpenAI 兼容端点的 LLM 调用，通过 Provider 预设同时支持
+// DeepSeek 与阿里云百炼 qwen（DeepSeek 优先）；配置统一从 .env 文件与
+// 进程环境变量读取，调用失败时由调用方降级为规则摘要。
 package llm
 
 import (
@@ -8,24 +9,36 @@ import (
 	"time"
 )
 
-const (
-	defaultBaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-	defaultModel   = "qwen3.7-plus"
-	defaultTimeout = 30 * time.Second
-)
+// Provider 预设端点与默认模型；LLM_BASE_URL / LLM_MODEL 可显式覆盖。
+type Provider struct {
+	Name    string
+	BaseURL string
+	Model   string
+	KeyEnv  string
+}
+
+var providers = map[string]Provider{
+	"deepseek": {Name: "deepseek", BaseURL: "https://api.deepseek.com", Model: "deepseek-flash", KeyEnv: "DEEPSEEK_API_KEY"},
+	"qwen":     {Name: "qwen", BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", Model: "qwen3.7-plus", KeyEnv: "DASHSCOPE_API_KEY"},
+}
+
+// defaultProvider 未显式指定且无法推断时的兜底 Provider（DeepSeek 优先）。
+const defaultProvider = "deepseek"
+
+const defaultTimeout = 30 * time.Second
 
 // Config LLM 接入配置。
 type Config struct {
-	APIKey  string
-	BaseURL string
-	Model   string
-	Timeout time.Duration
-	Enabled bool
+	Provider string
+	APIKey   string
+	BaseURL  string
+	Model    string
+	Timeout  time.Duration
+	Enabled  bool
 }
 
 // LoadConfig 读取 dotenv 文件与进程环境变量生成配置；进程环境变量优先。
 func LoadConfig(dotenv string) Config {
-	cfg := Config{BaseURL: defaultBaseURL, Model: defaultModel, Timeout: defaultTimeout, Enabled: true}
 	vals := readDotEnv(dotenv)
 	get := func(k string) string {
 		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
@@ -33,7 +46,22 @@ func LoadConfig(dotenv string) Config {
 		}
 		return vals[k]
 	}
-	cfg.APIKey = get("DASHSCOPE_API_KEY")
+	name := strings.ToLower(get("LLM_PROVIDER"))
+	if name == "" || name == "auto" {
+		name = detectProvider(get)
+	}
+	p, ok := providers[name]
+	if !ok {
+		p = providers[defaultProvider]
+	}
+	cfg := Config{
+		Provider: p.Name,
+		APIKey:   resolveKey(get, p),
+		BaseURL:  p.BaseURL,
+		Model:    p.Model,
+		Timeout:  defaultTimeout,
+		Enabled:  true,
+	}
 	if v := get("LLM_BASE_URL"); v != "" {
 		cfg.BaseURL = strings.TrimRight(v, "/")
 	}
@@ -50,6 +78,36 @@ func LoadConfig(dotenv string) Config {
 		cfg.Enabled = false
 	}
 	return cfg
+}
+
+// detectProvider 未显式指定 LLM_PROVIDER 时按已配置的 Key 推断：DeepSeek 优先。
+func detectProvider(get func(string) string) string {
+	if get("DEEPSEEK_API_KEY") != "" || get("LLM_API_KEY") != "" {
+		return "deepseek"
+	}
+	if get("DASHSCOPE_API_KEY") != "" {
+		return "qwen"
+	}
+	return defaultProvider
+}
+
+// resolveKey 解析 API Key：通用 LLM_API_KEY 优先，其次当前 Provider 的 Key，
+// 最后回退另一家 Provider 的 Key（兼容两家共用一个 sk- 条目的场景）。
+func resolveKey(get func(string) string, p Provider) string {
+	if v := get("LLM_API_KEY"); v != "" {
+		return v
+	}
+	if v := get(p.KeyEnv); v != "" {
+		return v
+	}
+	for _, other := range providers {
+		if other.Name != p.Name {
+			if v := get(other.KeyEnv); v != "" {
+				return v
+			}
+		}
+	}
+	return ""
 }
 
 // Available 报告配置是否足以发起真实调用。
