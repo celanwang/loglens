@@ -37,6 +37,9 @@ func Build(entries []model.Entry, opts Options) *model.Report {
 	buildOverview(entries, r)
 	buildModuleStats(entries, r)
 	buildLatency(entries, r)
+	traces := buildTraces(entries)
+	buildSlowAndUnfinished(traces, entries, r, opts)
+	buildErrorGroups(entries, r)
 	return r
 }
 
