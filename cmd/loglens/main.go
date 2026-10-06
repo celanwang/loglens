@@ -63,7 +63,8 @@ func runAnalyze(args []string) {
 
 	files := fs.Args()
 	if len(files) == 0 {
-		fmt.Fprintln(os.Stderr, "错误: 请指定至少一个日志文件\n\n"+usageText)
+		fmt.Fprintln(os.Stderr, "错误: 请指定至少一个日志文件")
+		fmt.Fprint(os.Stderr, "\n"+usageText)
 		os.Exit(2)
 	}
 	entries, err := loadEntries(files)
